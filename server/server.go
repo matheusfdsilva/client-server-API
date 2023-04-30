@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"time"
@@ -17,45 +18,51 @@ func main() {
 }
 
 func Cotacao(w http.ResponseWriter, r *http.Request) {
-	cotacao := consultaCotacao()
-	SalvaCotacao(&cotacao.USDBRL)
+	cotacao, err := consultaCotacao()
+	if err != nil {
+		panic(err)
+	}
+	err = SalvaCotacao(&cotacao.USDBRL)
+	if err != nil {
+		panic(err)
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(cotacao.USDBRL)
 }
 
-func consultaCotacao() CotacaoResponse {
+func consultaCotacao() (*CotacaoResponse, error) {
 	ctx := context.Background()
 	ctx, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, "GET", URL, nil)
 	if err != nil {
-		panic(err)
+		return nil, errors.New("Ocorreu um erro ao tentar criar a request da consulta da cotação do dolar")
 	}
 
 	response, err := http.DefaultClient.Do(req)
 	if err != nil {
-		panic(err)
+		return nil, errors.New("Ocorreu um erro ao realizar consulta da cotação do dolar")
 	}
 
 	defer response.Body.Close()
 
 	resp, err := io.ReadAll(response.Body)
 	if err != nil {
-		panic(err)
+		return nil, errors.New("Ocorreu um erro ao realizar a leitura do response")
 	}
 
 	var cotacaoResponse CotacaoResponse
 	err = json.Unmarshal(resp, &cotacaoResponse)
 	if err != nil {
-		panic(err)
+		return nil, errors.New("Ocorreu um erro ao converter o response")
 	}
 
-	return cotacaoResponse
+	return &cotacaoResponse, nil
 }
 
-func SalvaCotacao(cotacao *DadosCotacaoResponse) {
+func SalvaCotacao(cotacao *DadosCotacaoResponse) error {
 	ctx := context.Background()
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Millisecond)
 	defer cancel()
@@ -63,12 +70,11 @@ func SalvaCotacao(cotacao *DadosCotacaoResponse) {
 	dsn := "root:root@tcp(localhost:3306)/goexpert"
 	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
 	if err != nil {
-		panic(err)
+		return errors.New("Ocorreu um erro ao realizar a conexão com o banco de dados")
 	}
 
-	db.AutoMigrate(&DadosCotacaoResponse{})
-
 	db.WithContext(ctx).Create(cotacao)
+	return nil
 }
 
 const URL = "https://economia.awesomeapi.com.br/json/last/USD-BRL"
